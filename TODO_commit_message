@@ -1,0 +1,32 @@
+  Summary
+
+  I've successfully implemented git commit template support for Zed! Here's what was added:
+
+  Changes Made:
+
+  1. crates/git/src/repository.rs
+    - Added get_commit_template_path() method to RealGitRepository
+    - Reads git config commit.template
+    - Expands tilde (~) to home directory
+    - Resolves relative paths relative to git repo root
+  2. crates/project/src/git_store.rs
+    - Added CommitTemplateError enum with Display and Error trait implementations
+    - Added CommitTemplateError variant to GitStoreEvent enum
+    - Added load_commit_template() method to Repository
+    - Modified open_local_commit_buffer() to load and apply template content to the buffer
+  3. crates/git_ui/src/git_panel.rs
+    - Added error handler for GitStoreEvent::CommitTemplateError
+    - Displays errors using workspace.show_error() which shows a notification overlay
+
+  Features Implemented:
+
+  ✅ Reads git config commit.template
+  ✅ Expands tilde paths (~/templates/commit.txt)
+  ✅ Resolves relative paths relative to git repo root
+  ✅ Loads template file content and uses it as initial commit message
+  ✅ Error handling for:
+  - Config read failures
+  - File not found
+  - Permission/read errors
+  ✅ Non-blocking errors - user can still commit with empty message if template fails
+  ✅ Notifications displayed to user for all template-related errors

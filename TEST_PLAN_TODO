@@ -1,0 +1,7 @@
+ - Test with valid template file
+ - Test with non-existent template file
+ - Test with unreadable template file (permissions)
+ - Test with no template configured
+ - Test with relative vs absolute paths
+ - Test with tildes in path (~/...)
+
