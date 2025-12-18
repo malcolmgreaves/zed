@@ -1,0 +1,67 @@
+error[E0599]: no method named `get_commit_template_path` found for struct `std::sync::Arc<(dyn GitRepository + 'static)>` in the current scope
+    --> crates/project/src/git_store.rs:3982:56
+     |
+3982 |                     let template_path_result = backend.get_commit_template_path().await;
+     |                                                        ^^^^^^^^^^^^^^^^^^^^^^^^ method not found in `std::sync::Arc<(dyn GitRepository + 'static)>`
+
+error[E0599]: no method named `emit` found for struct `AsyncApp` in the current scope
+    --> crates/project/src/git_store.rs:3996:36
+     |
+3996 | ...                   cx.emit(GitStoreEvent::CommitTemplateError(error));
+     |                          ^^^^ method not found in `AsyncApp`
+
+error[E0599]: no method named `emit` found for struct `AsyncApp` in the current scope
+    --> crates/project/src/git_store.rs:4002:32
+     |
+4002 | ...                   cx.emit(GitStoreEvent::CommitTemplateError(
+     |                       ---^^^^ method not found in `AsyncApp`
+
+
+===> AI got wrong methods for context
+===> AI didn't add the method correctly (maybe it put it onto a struct when it needs to do it to the trait? is there a trait? if not when dyn???)
+
+
+
+
+error[E0282]: type annotations needed for `std::result::Result<std::option::Option<PathBuf>, _>`
+    --> crates/project/src/git_store.rs:3982:25
+     |
+3982 |                     let template_path_result = backend.get_commit_template_path().await;
+     |                         ^^^^^^^^^^^^^^^^^^^^
+...
+4003 |                                 CommitTemplateError::ConfigReadFailed(e.to_string()),
+     |                                                                       - type must be known at this point
+     |
+help: consider giving `template_path_result` an explicit type, where the placeholders `_` are specified
+     |
+3982 |                     let template_path_result: std::result::Result<_, E> = backend.get_commit_template_path().await;
+     |                                             +++++++++++++++++++++++++++
+
+===> Maybe bc the error below??
+
+
+
+
+
+
+error[E0308]: mismatched types
+    --> crates/project/src/git_store.rs:3979:9
+     |
+3978 |       pub fn load_commit_template(&mut self, cx: &mut Context<Self>) -> Task<Result<Option<String>>> {
+     |                                                                         ---------------------------- expected `gpui::Task<std::result::Result<std::option::Option<std::string::String>, anyhow::Error>>` because of return type
+3979 | /         self.send_job(None, |state, mut cx| async move {
+3980 | |             match state {
+3981 | |                 RepositoryState::Local(LocalRepositoryState { backend, .. }) => {
+3982 | |                     let template_path_result = backend.get_commit_template_path().await;
+...    |
+4011 | |         })
+     | |__________^ expected `Task<Result<Option<String>, Error>>`, found `Receiver<Result<Option<String>, _>>`
+     |
+     = note: expected struct `gpui::Task<std::result::Result<std::option::Option<std::string::String>, anyhow::Error>>`
+                found struct `futures::futures_channel::oneshot::Receiver<std::result::Result<std::option::Option<std::string::String>, _>>`
+
+
+===> pull from oneshot and if it's None then transform into Err(.) o/w Some(x) -> Ok(x)
+
+
+
