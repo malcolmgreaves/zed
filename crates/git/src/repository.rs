@@ -709,6 +709,46 @@ impl RealGitRepository {
         *self.any_git_binary_help_output.lock() = Some(output.clone());
         output
     }
+
+    pub async fn get_commit_template_path(&self) -> Result<Option<PathBuf>> {
+        let git_binary_path = self.any_git_binary_path.clone();
+        let working_directory = self.working_directory()?;
+
+        let output = new_smol_command(&git_binary_path)
+            .current_dir(&working_directory)
+            .args(["config", "--get", "commit.template"])
+            .output()
+            .await?;
+
+        if output.status.success() {
+            let path = String::from_utf8(output.stdout)?.trim().to_string();
+            if path.is_empty() {
+                return Ok(None);
+            }
+
+            // Expand tilde to home directory
+            let path = if path.starts_with("~/") {
+                if let Some(home) = std::env::var_os("HOME") {
+                    PathBuf::from(home).join(&path[2..])
+                } else {
+                    PathBuf::from(path)
+                }
+            } else {
+                PathBuf::from(path)
+            };
+
+            // Resolve relative paths relative to git repo root
+            let template_path = if path.is_absolute() {
+                path
+            } else {
+                working_directory.join(path)
+            };
+
+            Ok(Some(template_path))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

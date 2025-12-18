@@ -372,6 +372,36 @@ pub enum RepositoryEvent {
 #[derive(Clone, Debug)]
 pub struct JobsUpdated;
 
+#[derive(Debug, Clone)]
+pub enum CommitTemplateError {
+    ConfigReadFailed(String),
+    ReadFailed { path: PathBuf, error: String },
+    PathNotFound(PathBuf),
+}
+
+impl std::fmt::Display for CommitTemplateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CommitTemplateError::ConfigReadFailed(e) => {
+                write!(f, "Failed to read git commit.template config: {}", e)
+            }
+            CommitTemplateError::ReadFailed { path, error } => {
+                write!(
+                    f,
+                    "Failed to read commit template file '{}': {}",
+                    path.display(),
+                    error
+                )
+            }
+            CommitTemplateError::PathNotFound(path) => {
+                write!(f, "Commit template file not found: {}", path.display())
+            }
+        }
+    }
+}
+
+impl std::error::Error for CommitTemplateError {}
+
 #[derive(Debug)]
 pub enum GitStoreEvent {
     ActiveRepositoryChanged(Option<RepositoryId>),
@@ -379,6 +409,7 @@ pub enum GitStoreEvent {
     RepositoryAdded,
     RepositoryRemoved(RepositoryId),
     IndexWriteError(anyhow::Error),
+    CommitTemplateError(CommitTemplateError),
     JobsUpdated,
     ConflictsUpdated,
 }
@@ -3888,6 +3919,42 @@ impl Repository {
             .starts_with(&self.snapshot.work_directory_abs_path)
     }
 
+    pub fn load_commit_template(&mut self, cx: &mut Context<Self>) -> Task<Result<Option<String>>> {
+        self.send_job(None, |state, mut cx| async move {
+            match state {
+                RepositoryState::Local(LocalRepositoryState { backend, .. }) => {
+                    let template_path_result = backend.get_commit_template_path().await;
+
+                    match template_path_result {
+                        Ok(Some(path)) => match smol::fs::read_to_string(&path).await {
+                            Ok(content) => Ok(Some(content)),
+                            Err(e) => {
+                                let error = if e.kind() == std::io::ErrorKind::NotFound {
+                                    CommitTemplateError::PathNotFound(path)
+                                } else {
+                                    CommitTemplateError::ReadFailed {
+                                        path,
+                                        error: e.to_string(),
+                                    }
+                                };
+                                cx.emit(GitStoreEvent::CommitTemplateError(error));
+                                Ok(None)
+                            }
+                        },
+                        Ok(None) => Ok(None),
+                        Err(e) => {
+                            cx.emit(GitStoreEvent::CommitTemplateError(
+                                CommitTemplateError::ConfigReadFailed(e.to_string()),
+                            ));
+                            Ok(None)
+                        }
+                    }
+                }
+                RepositoryState::Remote(_) => Ok(None),
+            }
+        })
+    }
+
     pub fn open_commit_buffer(
         &mut self,
         languages: Option<Arc<LanguageRegistry>>,
@@ -3947,9 +4014,19 @@ impl Repository {
         cx: &mut Context<Self>,
     ) -> Task<Result<Entity<Buffer>>> {
         cx.spawn(async move |repository, cx| {
+            let template_content = repository
+                .update(cx, |repo, cx| repo.load_commit_template(cx))?
+                .await?;
+
             let buffer = buffer_store
                 .update(cx, |buffer_store, cx| buffer_store.create_buffer(false, cx))?
                 .await?;
+
+            if let Some(template) = template_content {
+                buffer.update(cx, |buffer, cx| {
+                    buffer.edit([(0..0, template)], None, cx);
+                })?;
+            }
 
             if let Some(language_registry) = language_registry {
                 let git_commit_language = language_registry.language_for_name("Git Commit").await?;
