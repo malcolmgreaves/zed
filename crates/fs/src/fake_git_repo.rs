@@ -55,6 +55,7 @@ pub struct FakeGitRepositoryState {
     pub remotes: HashMap<String, String>,
     pub simulated_index_write_error_message: Option<String>,
     pub refs: HashMap<String, String>,
+    pub commit_template_path: Option<PathBuf>,
 }
 
 impl FakeGitRepositoryState {
@@ -72,6 +73,7 @@ impl FakeGitRepositoryState {
             merge_base_contents: Default::default(),
             oids: Default::default(),
             remotes: HashMap::default(),
+            commit_template_path: None,
         }
     }
 }
@@ -736,6 +738,12 @@ impl GitRepository for FakeGitRepository {
             Ok(())
         })
     }
+
+    fn get_commit_template_path(&self) -> BoxFuture<'_, Result<Option<PathBuf>>> {
+      self.with_state_async(false, |state| {
+        Ok(state.commit_template_path.clone())
+      })
+    }
 }
 
 #[cfg(test)]
@@ -797,5 +805,15 @@ mod tests {
                 (Path::new(path!("/foo/b")).into(), b"ipsum".into())
             ]
         );
+    }
+
+    #[gpui::test]
+    async fn test_commit_template(executor: BackgroundExecutor) {
+      let fs = FakeFs::new(executor);
+      fs.insert_tree(path!("/"), json!({"repo": { ".git": {}}})).await;
+      fs.with_git_state(Path::new("/repo/.git"), true, |_git| {}).unwrap();
+      let repository = fs.open_repo(Path::new("/repo/.git"), Some("git".as_ref())).unwrap();
+
+      assert_eq!(None, repository.get_commit_template_path().await.unwrap());
     }
 }
