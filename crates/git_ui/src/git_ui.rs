@@ -535,19 +535,39 @@ fn copy_branch_name(workspace: &mut Workspace, cx: &mut Context<Workspace>) {
     }
 }
 
-struct RefPickerModal {
+/// What the [`RefPickerModal`] does with the git ref the user enters.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RefPickerAction {
+    /// Open the resolved commit in a read-only commit view ("git: view commit").
+    ViewCommit,
+    /// Open a diff between the working tree and the resolved ref ("git: commit diff").
+    CommitDiff,
+}
+
+impl RefPickerAction {
+    fn title(self) -> &'static str {
+        match self {
+            RefPickerAction::ViewCommit => "View Commit",
+            RefPickerAction::CommitDiff => "Commit Diff",
+        }
+    }
+}
+
+pub(crate) struct RefPickerModal {
     editor: Entity<Editor>,
     repo: Entity<Repository>,
     workspace: Entity<Workspace>,
+    action: RefPickerAction,
     commit_details: Option<CommitDetails>,
     lookup_task: Option<Task<()>>,
     _editor_subscription: Subscription,
 }
 
 impl RefPickerModal {
-    fn new(
+    pub(crate) fn new(
         repo: Entity<Repository>,
         workspace: Entity<Workspace>,
+        action: RefPickerAction,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -571,6 +591,7 @@ impl RefPickerModal {
             editor,
             repo,
             workspace,
+            action,
             commit_details: None,
             lookup_task: None,
             _editor_subscription,
@@ -633,6 +654,7 @@ impl RefPickerModal {
 
         let repo = self.repo.clone();
         let workspace = self.workspace.clone();
+        let action = self.action;
 
         window
             .spawn(cx, async move |cx| -> anyhow::Result<()> {
@@ -641,21 +663,32 @@ impl RefPickerModal {
 
                 match show_result {
                     Ok(Ok(details)) => {
-                        workspace.update_in(cx, |workspace, window, cx| {
-                            CommitView::open(
-                                details.sha.to_string(),
-                                repo.downgrade(),
-                                workspace.weak_handle(),
-                                None,
-                                None,
-                                window,
-                                cx,
-                            );
+                        workspace.update_in(cx, |workspace, window, cx| match action {
+                            RefPickerAction::ViewCommit => {
+                                CommitView::open(
+                                    details.sha.to_string(),
+                                    repo.downgrade(),
+                                    workspace.weak_handle(),
+                                    None,
+                                    None,
+                                    window,
+                                    cx,
+                                );
+                            }
+                            RefPickerAction::CommitDiff => {
+                                crate::branch_diff::BranchDiff::deploy_commit_diff(
+                                    workspace,
+                                    git_ref_string.clone().into(),
+                                    window,
+                                    cx,
+                                );
+                            }
                         })?;
                     }
                     Ok(Err(_)) | Err(_) => {
                         workspace.update(cx, |workspace, cx| {
-                            let error = anyhow::anyhow!("View commit failed");
+                            let error =
+                                anyhow::anyhow!("Couldn't resolve git ref \"{git_ref_string}\"");
                             Self::show_git_error_toast(&git_ref_string, error, workspace, cx);
                         });
                     }
@@ -738,7 +771,7 @@ impl Render for RefPickerModal {
                     .w_full()
                     .gap_1p5()
                     .child(Icon::new(IconName::Hash).size(IconSize::XSmall))
-                    .child(Headline::new("View Commit").size(HeadlineSize::XSmall)),
+                    .child(Headline::new(self.action.title()).size(HeadlineSize::XSmall)),
             )
             .child(div().px_3().w_full().child(self.editor.clone()))
             .when_some(commit_preview, |el, preview| {
@@ -760,7 +793,13 @@ fn show_ref_picker(
 
     let workspace_entity = cx.entity();
     workspace.toggle_modal(window, cx, |window, cx| {
-        RefPickerModal::new(repo, workspace_entity, window, cx)
+        RefPickerModal::new(
+            repo,
+            workspace_entity,
+            RefPickerAction::ViewCommit,
+            window,
+            cx,
+        )
     });
 }
 

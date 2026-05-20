@@ -49,6 +49,9 @@ actions!(
         LeaderAndFollower,
         /// Compare with a specific branch
         CompareWithBranch,
+        /// Shows the diff between the working directory and a given commit or git
+        /// reference (a hash, branch, tag, or revision expression such as HEAD~2).
+        CommitDiff,
     ]
 );
 
